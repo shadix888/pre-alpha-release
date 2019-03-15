@@ -45,23 +45,59 @@ always_ff @(posedge clk_i)
 
 assign read_valid_o = valid[idx_r_i];
 
+// logic required to crack the ram into upper and lower addressed halves
+logic high_w_v_i, high_r_v_i, low_w_v_i, low_r_v_i;
+assign high_w_v_i = idx_w_i[bp_fe_pc_gen_btb_idx_width_lp-1] && w_v_i;
+assign high_r_v_i = idx_r_i[bp_fe_pc_gen_btb_idx_width_lp-1] && r_v_i;
+assign low_w_v_i = (!idx_w_i[bp_fe_pc_gen_btb_idx_width_lp-1]) && w_v_i;
+assign low_r_v_i = (!idx_r_i[bp_fe_pc_gen_btb_idx_width_lp-1]) && r_v_i;
+
+logic [bp_fe_pc_gen_btb_idx_width_lp-2:0] write_addr, read_addr;
+assign write_addr = idx_w_i[bp_fe_pc_gen_btb_idx_width_lp-2:0];
+assign read_addr = idx_r_i[bp_fe_pc_gen_btb_idx_width_lp-2:0];
+
+// pick between the output of the two rams
+logic [eaddr_width_p-1:0] branch_target_high, branch_target_low;
+
+// ram for upper half of addresses
 bsg_mem_1r1w 
  #(.width_p(eaddr_width_p)
-   ,.els_p(2**bp_fe_pc_gen_btb_idx_width_lp)
-   ,.addr_width_lp(bp_fe_pc_gen_btb_idx_width_lp)
+   ,.els_p(2**(bp_fe_pc_gen_btb_idx_width_lp-1))
+   ,.addr_width_lp(bp_fe_pc_gen_btb_idx_width_lp-1)
    ,.enable_clock_gating_p(1'b1)
    ) 
  bsg_mem_1rw_sync_synth_1 
   (.w_clk_i(clk_i)
    ,.w_reset_i(reset_i)
 
-   ,.w_v_i(w_v_i)
-   ,.w_addr_i(idx_w_i)
+   ,.w_v_i(high_w_v_i)
+   ,.w_addr_i(write_addr)
    ,.w_data_i(branch_target_i)
    
-   ,.r_v_i(r_v_i)
-   ,.r_addr_i(idx_r_i)
-   ,.r_data_o(branch_target_o)
+   ,.r_v_i(high_r_v_i)
+   ,.r_addr_i(read_addr)
+   ,.r_data_o(branch_target_high)
    );
 
+// ram for lower half of addresses
+bsg_mem_1r1w
+ #(.width_p(eaddr_width_p)
+  ,.els_p(2**(bp_fe_pc_gen_btb_idx_width_lp-1))
+  ,.addr_width_lp(bp_fe_pc_gen_btb_idx_width_lp-1)
+  ,.enable_clock_gating_p(1'b1)
+  )
+ bsg_mem_1rw_sync_synth_2
+  (.w_clk_i(clk_i)
+  ,.w_reset_i(reset_i)
+
+  ,.w_v_i(low_w_v_i)
+  ,.w_addr_i(write_addr)
+  ,.w_data_i(branch_target_i)
+
+  ,.r_v_i(low_r_v_i)
+  ,.r_addr_i(read_addr)
+  ,.r_data_o(branch_target_low)
+  );
+
+assign branch_target_o = high_r_v_i ? branch_target_high : branch_target_low;
 endmodule
